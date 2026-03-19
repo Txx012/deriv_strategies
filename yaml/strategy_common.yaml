@@ -1,0 +1,17 @@
+# 全局仓位风控
+total_pos_limit: 0.8      # 总仓位上限（占账户80%）
+empty_pos_threshold: 0.05 # 空仓阈值（仓位<5%视为空仓）
+# 通用止损止盈（策略未单独配置时生效）
+default_stop_loss: 0.05   # 固定比例止损（5%）
+default_take_profit: 0.10 # 固定比例止盈（10%）
+trailing_stop: true       # 是否开启移动止损
+trailing_step: 0.02       # 移动止损步长（2%）
+# 交易规则
+min_order_volume: 1       # 最小委托手数
+max_order_volume: 100     # 最大委托手数
+order_price_type: "close" # 委托价格类型：close(收盘价) / open(开盘价) / market(市价)
+# 期权专属通用规则
+option_expiry_offset: 3   # 期权到期前N天平仓（避免到期波动）
+option_delta_range: [-1, 1] # 期权Delta范围限制
+# 期货专属通用规则
+futures_rollover_offset: 5 # 期货换月前N天移仓（避免交割）

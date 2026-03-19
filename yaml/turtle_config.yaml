@@ -1,0 +1,20 @@
+# 交易标的（期货代码，适配Tushare/本地，多标的用列表：["rb2405", "cu2405"]）
+symbol: "rb2405"
+# 海龟核心参数
+n_period: 20              # N值计算周期（真实波动率TR的20日均值）
+entry_period: 20          # 入场突破周期（20日高低点，经典海龟）
+# 止损止盈
+stop_loss_multi: 2        # 止损倍数（2N，经典海龟规则）
+take_profit_multi: 4      # 止盈倍数（4N，可选扩展）
+# 仓位管理
+max_pos_units: 4          # 最大持仓单位数（经典海龟最多4单位）
+risk_ratio: 0.01          # 每笔风险占账户净资产比例（1%，风控核心）
+single_pos_limit: 0.2     # 单一标的仓位上限（占账户20%）
+# 回测关联（复用通用回测配置，可单独覆盖）
+backtest:
+  inherit: true           # 是否继承backtest_config.yaml
+  override: {}            # 单独覆盖的参数，如：{"initial_capital": 2000000}
+# 合约专属（覆盖通用乘数/保证金）
+contract:
+  multiplier: 10          # 螺纹钢期货乘数10吨/手
+  margin_rate: 0.12       # 螺纹钢保证金比例12%

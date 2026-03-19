@@ -1,0 +1,11 @@
+oracle_connect_string: 'yspread/Y*iaciej123456@172.17.21.3:1521/WDZX'
+feather_storage_path: 'Z:\alphaData\feather'
+# feather_storage_path: 'Z:\alphaData\feather'  # 可选路径
+enable_backup: true
+parallel_workers: 4
+chunk_size: 10000
+default_storage_type: 'feather'
+metadata_file: 'factor_metadata.json'
+auto_refresh_interval: 60  # 元数据自动刷新间隔(秒)
+metadata_cache_timeout: 60  # 元数据缓存超时(秒)
+use_metadata_cache: true  # 是否使用元数据缓存

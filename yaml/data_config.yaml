@@ -1,0 +1,348 @@
+# 多数据源配置文件
+data_sources:
+  dolphindb:
+    connection:
+      type: dolphindb
+      ip: "192.168.1.19"
+      port: 8902
+      port_kl: 9903
+      username: "ysp_reader"
+      password: "Re@der_2024"
+      dfs_path: "dfs://"
+    field_mappings:
+      # 股票L2表（对齐标的格式：600000.SH → 自动解析）
+      StockL2Snap:
+        windcode: SecurityId    # 对齐Wind字段名：windcode
+        trade_date: DateTime    # 时间字段
+        last_price: LastPrice   # 最新价
+        pre_close: PreClosePrice
+        offer_price: OfferPrice
+        offer_volume: OfferVolume
+        bid_price: BidPrice
+        bid_volume: BidVolume
+        trade_volume: TotalVolume
+        trade_amount: TotalAmount
+      # 期货L2表
+      FutureL2:
+        windcode: SecurityId    # 对齐Wind字段名：windcode
+        trade_date: TradingDate
+        last_price: LastPrice
+        pre_close: PreClosePrice
+        offer_price: OfferPrice
+        offer_volume: OfferVolume
+        bid_price: BidPrice
+        bid_volume: BidVolume
+        trade_volume: TotalVolume
+        trade_amount: TotalAmount
+      # 日线表
+      DayLine:
+        windcode: SecurityId    # 对齐Wind字段名：windcode
+        trade_date: TradeDate
+        open: OpenPrice
+        high: HighestPrice
+        low: LowestPrice
+        close: ClosePrice
+        pre_close: PreClosePrice
+        volume: Volume
+        amount: Amount
+        trade_num: TradeNum   # 成交笔数 仅沪深、沪深期权
+        settle: SettlePrice  # 结算价 仅沪深期权、期货市场
+        open_interest: OpenInterest   # 持仓量 仅沪深、沪深期权、期货市场
+        pre_settle: PreSettlePrice  # 前结算价 仅沪深期权、期货市场
+      # 分钟线表
+      MinuteLine:
+        windcode: SecurityId    # 对齐Wind字段名：windcode
+        trade_date: TradeDate
+        time: Time     # 分钟
+        open: OpenPrice
+        high: HighestPrice
+        low: LowestPrice
+        close: ClosePrice
+        volume: Volume
+        amount: Amount
+        trade_num: TradeNum
+        open_interest: OpenInterest
+
+  # Oracle数据源配置
+  oracle:
+    connection:
+      type: "oracle"
+      connection_string: "yspread/Y*iaciej123456@172.17.21.3:1521/WDZX"
+      max_workers: 10
+    field_mappings:
+      AShareCalendar:  # 股票市场行情表
+        trade_date: TRADE_DAYS  # 业务别名trade_date对应实际字段TRADE_DAYS
+        exchange: S_INFO_EXCHMARKET  # 交易所英文简称（业务字段 -> 数据库字段）
+        # A股日行情表（新增配置）
+      AShareEODPrices:
+        windcode: S_INFO_WINDCODE    # 标的代码（唯一标识）
+        trade_date: TRADE_DT         # 交易日期（统一别名，实际字段TRADE_DT）
+        currency: CRNCY_CODE         # 货币代码
+        pre_close: S_DQ_PRECLOSE     # 昨收盘价(元)
+        open: S_DQ_OPEN              # 开盘价(元)
+        high: S_DQ_HIGH              # 最高价(元)
+        low: S_DQ_LOW                # 最低价(元)
+        close: S_DQ_CLOSE            # 收盘价(元)
+        change: S_DQ_CHANGE          # 涨跌(元)
+        pct_change: S_DQ_PCTCHANGE   # 涨跌幅(%)
+        volume: S_DQ_VOLUME          # 成交量(手)
+        amount: S_DQ_AMOUNT          # 成交金额(千元)
+        adj_pre_close: S_DQ_ADJPRECLOSE  # 复权昨收盘价
+        adj_open: S_DQ_ADJOPEN            # 复权开盘价
+        adj_high: S_DQ_ADJHIGH            # 复权最高价
+        adj_low: S_DQ_ADJLOW              # 复权最低价
+        adj_close: S_DQ_ADJCLOSE          # 复权收盘价
+        avg_price: S_DQ_AVGPRICE         # 均价(VWAP)
+        trade_status: S_DQ_TRADESTATUS    # 交易状态
+        limit_up_price: S_DQ_LIMIT        # 涨停价(元)
+        limit_down_price: S_DQ_STOPPING   # 跌停价(元)
+      OPTIONCONTRACT:  # 期权合约表
+        windcode: "S_INFO_WINDCODE"
+        underlying_code: "S_DERIVED_UNDERLYINGCODE"
+        option_type: "OPTION_TYPE"
+        maturity_date: "S_INFO_LASTTRADINGDATE"
+        strike_price: "S_DERIVED_STRIKEPRICE"
+        first_trading_date: "S_INFO_FTDATE"
+      ASHAREFININD:  # 基本面数据表
+        instrument: S_INFO_WINDCODE
+        date: REPORT_PERIOD
+        pe_ratio: PERATIO
+        pb_ratio: PBRATIO
+        roe: ROE
+      CSI.AINDEXHS300WEIGHT:
+        object_id: OBJECT_ID    # 对象ID（唯一标识）
+        index_windcode: S_INFO_WINDCODE    # 指数Wind代码（沪深300指数代码）
+        constituent_windcode: S_CON_WINDCODE    # 成份股Wind代码（个股代码）
+        trade_date: TRADE_DT    # 交易日期（统一别名，实际字段TRADE_DT）
+        weight: I_WEIGHT    # 权重（成分股在指数中的权重）
+        calculation_shares: S_IN_INDEX    # 计算用股本(股)（指数计算用股本数量）
+        total_shares: I_WEIGHT_11    # 总股本(股)（公司总股份数量）
+        free_float_ratio: I_WEIGHT_12    # 自由流通比例(%)（归档后）（可自由交易股份比例）
+        weight_factor: I_WEIGHT_14    # 权重因子（用于权重计算的系数）
+        closing_price: I_WEIGHT_15    # 收盘价（成分股收盘价）
+        adjusted_opening_ref_price: I_WEIGHT_16    # 调整后开盘参考价（成分股调整后开盘价）
+        total_market_value: I_WEIGHT_17    # 总市值（成分股总市值）
+        calculation_market_value: I_WEIGHT_18    # 计算用市值（指数计算用市值）
+        modify_date: MOPDATE    # 修改日期（记录修改时间）
+        operation_date: OPDATE    # 操作日期（数据操作时间）
+        operation_mode: OPMODE    # 操作模式（数据操作类型标识）
+        insert_timestamp: ROW_INS_TS    # 插入时间戳（记录创建时间戳）
+        update_timestamp: ROW_UPD_TS    # 更新时间戳（记录最后更新时间戳）
+      CSI.AINDEXCSI500WEIGHT:
+        object_id: OBJECT_ID    # 对象ID（唯一标识数据记录）
+        trade_date: TRADE_DT    # 交易日（权重对应的交易日期）
+        index_windcode: S_INFO_WINDCODE    # 指数Wind代码（中证500指数唯一标识）
+        index_name: INDEXNAME    # 指数名称（中证500指数中文名称）
+        index_name_eng: INDEXNAME_ENG    # 指数英文名称（中证500指数英文标识）
+        constituent_windcode: S_CON_WINDCODE    # 成分股Wind代码（个股唯一标识）
+        exchange: EXCHANGE    # 交易所（成分股所属交易所）
+        total_shares: TOT_SHR    # 总股本(股)（成分股公司总股份数量）
+        free_float_ratio: FREE_SHR_RATIO    # 自由流通比例(%)(归档后)（可自由交易股份比例）
+        calculation_shares: SHR_CALCULATION    # 计算用股本(股)（指数权重计算专用股本）
+        weight_factor: WEIGHTFACTOR    # 权重因子（调整权重计算结果的系数）
+        closing_price: CLOSEVALUE    # 收盘（成分股当日收盘价）
+        adjusted_opening_ref_price: OPEN_ADJUSTED    # 调整后开盘参考价（次日开盘权重计算基准价）
+        total_market_value: TOT_MV    # 总市值（成分股公司总市值规模）
+        calculation_market_value: MV_CALCULATION    # 计算用市值（指数权重计算专用市值）
+        weight: WEIGHT    # 权重(%)（成分股在指数中的权重占比）
+        modify_date: MOPDATE    # 修改日期（数据修改时间记录）
+        operation_date: OPDATE    # 操作日期（数据操作执行时间）
+        operation_mode: OPMODE    # 操作模式（数据操作类型标识）
+        insert_timestamp: ROW_INS_TS    # 插入时间戳（数据创建时间戳）
+        update_timestamp: ROW_UPD_TS    # 更新时间戳（数据最后更新时间戳）
+      CSI.AINDEXCSI1000WEIGHT:
+        object_id: OBJECT_ID    # 对象ID（唯一标识数据记录）
+        trade_date: TRADE_DT    # 交易日（权重对应的交易日期）
+        index_windcode: S_INFO_WINDCODE    # 指数Wind代码（中证500指数唯一标识）
+        index_name: INDEXNAME    # 指数名称（中证500指数中文名称）
+        index_name_eng: INDEXNAME_ENG    # 指数英文名称（中证500指数英文标识）
+        constituent_windcode: S_CON_WINDCODE    # 成分股Wind代码（个股唯一标识）
+        exchange: EXCHANGE    # 交易所（成分股所属交易所）
+        total_shares: TOT_SHR    # 总股本(股)（成分股公司总股份数量）
+        free_float_ratio: FREE_SHR_RATIO    # 自由流通比例(%)(归档后)（可自由交易股份比例）
+        calculation_shares: SHR_CALCULATION    # 计算用股本(股)（指数权重计算专用股本）
+        weight_factor: WEIGHTFACTOR    # 权重因子（调整权重计算结果的系数）
+        closing_price: CLOSEVALUE    # 收盘（成分股当日收盘价）
+        adjusted_opening_ref_price: OPEN_ADJUSTED    # 调整后开盘参考价（次日开盘权重计算基准价）
+        total_market_value: TOT_MV    # 总市值（成分股公司总市值规模）
+        calculation_market_value: MV_CALCULATION    # 计算用市值（指数权重计算专用市值）
+        weight: WEIGHT    # 权重(%)（成分股在指数中的权重占比）
+        modify_date: MOPDATE    # 修改日期（数据修改时间记录）
+        operation_date: OPDATE    # 操作日期（数据操作执行时间）
+        operation_mode: OPMODE    # 操作模式（数据操作类型标识）
+        insert_timestamp: ROW_INS_TS    # 插入时间戳（数据创建时间戳）
+        update_timestamp: ROW_UPD_TS    # 更新时间戳（数据最后更新时间戳）
+      # 中信指数成份股表配置（更新字段别名）
+      AIndexMembersCITICS:
+        industry_code: S_INFO_WINDCODE      # 指数Wind代码（改为industry_code）
+        stock_code: S_CON_WINDCODE         # 成份股Wind代码（改为stock_code）
+        in_date: S_CON_INDATE                # 纳入日期
+        out_date: S_CON_OUTDATE              # 剔除日期
+        cur_sign: CUR_SIGN                   # 最新标志
+        trade_date: TRADE_DT                 # 日期字段别名
+      AIndexEODPrices:
+        windcode: S_INFO_WINDCODE      # 对应SQL: S_INFO_WINDCODE
+        trade_date: TRADE_DT           # 对应SQL: TRADE_DT
+        open: S_DQ_OPEN                # 对应SQL: S_DQ_OPEN
+        high: S_DQ_HIGH                # 对应SQL: S_DQ_HIGH
+        low: S_DQ_LOW                  # 对应SQL: S_DQ_LOW
+        close: S_DQ_CLOSE              # 对应SQL: S_DQ_CLOSE
+        pre_close: S_DQ_PRECLOSE       # 对应SQL: S_DQ_PRECLOSE
+        volume: S_DQ_VOLUME            # 对应SQL: S_DQ_VOLUME
+        amount: S_DQ_AMOUNT            # 对应SQL: S_DQ_AMOUNT
+      # 新增A股日行情估值指标表配置
+      AShareEODDerivativeIndicator:
+        stock_code: S_INFO_WINDCODE
+        trade_date: TRADE_DT
+        market_value: S_VAL_MV                 # 当日总市值(万元)
+        float_market_value: S_DQ_MV            # 当日流通市值(万元)
+        pe_lyr: S_VAL_PE                       # 市盈率(LYR)(倍)
+        pb: S_VAL_PB_NEW                       # 市净率(LF)(倍)
+        pe_ttm: S_VAL_PE_TTM                   # 市盈率(PE,TTM)(倍)
+        pcf_ocf_lyr: S_VAL_PCF_OCF             # 市现率(经营性净现金流LYR)(倍)
+        pcf_ocf_ttm: S_VAL_PCF_OCFTTM          # 市现率(经营性净现金流TTM)(倍)
+        pcf_ncf_lyr: S_VAL_PCF_NCF             # 市现率(现金净流量LYR)(倍)
+        pcf_ncf_ttm: S_VAL_PCF_NCFTTM          # 市现率(现金净流量TTM)(倍)
+        ps_lyr: S_VAL_PS                       # 市销率(LYR)(倍)
+        ps_ttm: S_VAL_PS_TTM                   # 市销率(TTM)(倍)
+        turnover: S_DQ_TURN                    # 换手率
+        free_turnover: S_DQ_FREETURNOVER       # 换手率(基准.自由流通股本)
+        total_shares: TOT_SHR_TODAY            # 当日总股本(万股)
+        float_shares: FLOAT_A_SHR_TODAY        # 当日流通股本(万股)
+        close_price: S_DQ_CLOSE_TODAY          # 当日收盘价(元)
+        price_div_dps: S_PRICE_DIV_DPS         # 股价/每股派息(倍)
+        free_shares: FREE_SHARES_TODAY         # 当日自由流通股本(万股)
+        net_assets: NET_ASSETS_TODAY           # 当日净资产(元)
+
+      # ========== 新增：A股分红送股表（AShareDividend） ==========
+      AShareDividend:
+        # 基础标识字段
+        sec_id: SEC_ID                          # Wind兼容代码
+        windcode: S_INFO_WINDCODE               # 股票Wind代码（如600000.SH）
+        dividend_year: REPORT_PERIOD            # 分红年度（YYYYMMDD格式）
+        # 分红进度字段
+        dividend_progress: S_DIV_PROGRESS       # 方案进度（董事会预案/股东大会通过/实施等）
+        is_changed: IS_CHANGED                  # 方案是否变更（0=无变更，1=有变更）
+        is_no_dividend: IS_TRANSFER             # 是否不分转（0=有分红，1=不分红）
+        is_special_dividend: IS_SPEC_DIVIDEND   # 是否特别分红（6863884186=是，6863884386=否）
+        dividend_batch: DIVIDEND_BATCH          # 分红批次(次)
+        distribution_model: DISTRIBUTION_MODEL  # 分派模式
+        # 分红金额字段
+        bonus_share_per_share: STK_DVD_PER_SH               # 每股送转数量
+        cash_dividend_pre_tax_per_share: CASH_DVD_PER_SH_PRE_TAX   # 每股派息(税前)(元)
+        cash_dividend_after_tax_per_share: CASH_DVD_PER_SH_AFTER_TAX # 每股派息(税后)(元)
+        bonus_share_ratio: S_DIV_BONUSRATE      # 每股送股比例
+        transfer_share_ratio: S_DIV_CONVERSEDRATE # 每股转增比例
+        base_share_capital: S_DIV_BASESHARE     # 基准股本(万股)
+        total_cash_dividend: TOT_CASH_DVD       # 现金分红总额（含税）
+        # 关键日期字段
+        record_date: EQY_RECORD_DT              # 股权登记日
+        ex_dividend_date: EX_DT                 # 除权除息日
+        payout_date: DVD_PAYOUT_DT              # 派息日
+        bonus_share_listing_date: LISTING_DT_OF_DVD_SHR # 红股上市日
+        plan_announce_date: S_DIV_PRELANDATE    # 预案公告日
+        shareholder_meeting_date: S_DIV_SMTGDATE # 股东大会公告日
+        implement_announce_date: DVD_ANN_DT     # 分红实施公告日
+        base_date: S_DIV_BASEDATE               # 基准日期
+        # 其他字段
+        currency_code: CRNCY_CODE               # 货币代码
+
+    # RiceQuant数据源配置
+  
+  ricequant:
+    connection:
+      type: "ricequant"
+      user: "license"  # 默认用户名
+      password: "E9Zg4OL0V9Vt4ZzrNCBP8yhSqo2ko9PCSelvX3axz4JHidGZqDOO27STRwWm6tWm6MQnmK-a-aKg6yD9mhQCpH4irrNLtav2dvZhTMD7JJzjdizzNqXtR00kxoVqXDE5IVCCZpJ8wNJXAjhfeYga5_8H6d60DOEUOxmFQs-33qg=E0-kx6fdj7QAJbyYknNiek0-POaBow36XzLtdT4KdHxPrE4PEoZU5S_Qj8pxs5rnTy8FoT430ENSGCZdej_0fQkFQorLJzPmS2KHcxX-hC35EPBMLz1s9Hq7qszxt4eJhKLirCyCkudt3ngT99DSAnDk49euIT782CoSz9KaXWU="
+    field_mappings:
+      # A股日行情（对齐Wind表名）
+      AShareEODPrices:
+        windcode: order_book_id    # RiceQuant标的代码字段
+        trade_date: date           # 日期字段
+        open: open                 # 开盘价
+        high: high                 # 最高价
+        low: low                   # 最低价
+        close: close               # 收盘价
+        pre_close: prev_close      # 昨收价
+        volume: volume             # 成交量
+        amount: total_turnover     # 成交金额
+      # 日线表（兼容自定义表名）
+      DayLine:
+        windcode: order_book_id
+        trade_date: date
+        open: open
+        high: high
+        low: low
+        close: close
+        volume: volume
+        amount: total_turnover
+      # 分钟线表
+      MinuteLine:
+        windcode: order_book_id
+        trade_date: date
+        time: time
+        open: open
+        high: high
+        low: low
+        close: close
+        volume: volume
+        amount: total_turnover
+      # 交易日历
+      AShareCalendar:
+        trade_date: date           # 交易日字段
+        exchange: exchange         # 交易所
+      # 期权合约表
+      OptionContracts:
+        windcode: order_book_id    # 合约代码
+      OptionEODPrices:
+        windcode: order_book_id
+        trade_date: date
+        open: open
+        high: high
+        low: low
+        close: close
+        volume: volume
+        amount: total_turnover
+      OptionMinute:
+        windcode: order_book_id
+        trade_date: date
+        time: time
+        open: open
+        high: high
+        low: low
+        close: close
+        volume: volume
+        amount: total_turnover
+      OptionGreeks:
+        windcode: order_book_id
+        trade_date: trading_date
+        iv: iv
+        delta: delta
+        gamma: gamma
+        vega: vega
+        theta: theta
+        rho: rho
+      OptionContractProperty:
+        windcode: order_book_id
+        trade_date: trading_date
+        contract_multiplier: contract_multiplier
+        product_name: product_name
+        strike_price: strike_price
+        symbol: symbol
+      OptionDominantMonth:
+        underlying_symbol: underlying_symbol
+        date: date
+        dominant: dominant
+      OptionIndicators:
+        underlying_symbol: underlying_symbol
+        date: date
+        AM_PCR: AM_PCR
+        OI_PCR: OI_PCR
+        VL_PCR: VL_PCR
+        skew: skew
+
+
+  # 本地存储文件
+  local:
+    connection:
+      local_path: "Z://dolphindb"
