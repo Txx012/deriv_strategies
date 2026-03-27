@@ -1,4 +1,5 @@
-from typing import List, Optional, Union, Dict
+# ricequant_provider.py
+from typing import List, Optional, Union, Dict, Any
 import pandas as pd
 import rqdatac as rq
 from .base_provider import BaseDataProvider
@@ -6,288 +7,394 @@ from .exceptions import QueryError, DatabaseTypeNotSupportedError, InvalidParame
 
 
 class RiceQuantDataProvider(BaseDataProvider):
-    """RiceQuant（米筐）数据源实现"""
+    """RiceQuant（米筐）数据源实现 - 对齐官方文档"""
 
     def __init__(self):
         super().__init__(source_type="ricequant")
-        # 校验数据源类型配置
         if self.connection_config.get("type") != "ricequant":
             raise DatabaseTypeNotSupportedError(self.connection_config.get("type"))
-        
-        # 初始化RiceQuant连接配置
+
         self.username = self.connection_config.get("user", "license")
         self.password = self.connection_config.get("password", "")
-        self._conn = None  # 缓存连接状态
-        self._init_rq_connection()
-        self._extra_params = {} 
+        self._conn = None
+        self._extra_params = {}
+        self._current_table_name = None
+        self._query_fields = []
+        self._query_instruments = []
+        self._query_start_date = None
+        self._query_end_date = None
 
-        # RiceQuant字段映射特殊处理：兼容Wind字段名习惯
-        self.RQ_FIELD_ALIAS = {
-            "trade_date": "date",
-            "windcode": "order_book_id",
-            "open": "open",
-            "high": "high",
-            "low": "low",
-            "close": "close",
-            "volume": "volume",
-            "amount": "total_turnover",
-            "pre_close": "prev_close"
+        # 日期格式转换映射
+        self.DATE_FORMAT_IN = "%Y%m%d"      # 输入格式 yyyymmdd
+        self.DATE_FORMAT_OUT = "%Y-%m-%d"   # RiceQuant 格式
+
+        self._init_rq_connection()
+
+        # 市场后缀映射（Wind格式 -> RiceQuant格式），从配置中读取
+        self.MARKET_SUFFIX_MAP = self.connection_config.get("market_suffix_map", {
+            ".SH": ".XSHG",
+            ".SZ": ".XSHE",
+            ".HK": ".XHKG",
+            ".CFE": ".CFE",
+            ".CF": ".CFE",
+        })
+
+        # 反向映射（RiceQuant格式 -> Wind格式），用于导出时转换
+        self.REVERSE_MARKET_SUFFIX_MAP = {v: k for k, v in self.MARKET_SUFFIX_MAP.items()}
+
+        # 表名对应的默认频率
+        self.TABLE_FREQ = {
+            "AShareEODPrices": "1d",
+            "DayLine": "1d",
+            "MinuteLine": "1m",
+            "OptionEODPrices": "1d",
+            "OptionMinute": "1m",
         }
 
     def _init_rq_connection(self):
         """初始化RiceQuant连接"""
         try:
-            # 初始化连接（支持空密码/默认license模式）
             rq.init(self.username, self.password)
-            self._conn = rq  # 将rq实例作为连接缓存
+            self._conn = rq
             print("✅ RiceQuant连接成功")
         except Exception as e:
             raise QueryError(f"RiceQuant连接失败：{str(e)}")
 
     def _get_connection(self) -> object:
-        """获取RiceQuant连接（实现抽象方法）"""
-        if not self._conn or not self._is_conn_alive():
+        """获取RiceQuant连接"""
+        if not self._conn:
             self._init_rq_connection()
         return self._conn
 
     def _is_conn_alive(self) -> bool:
-        """检查RiceQuant连接有效性（实现抽象方法）"""
+        """检查连接有效性"""
         try:
-            # 执行简单查询验证连接
             self._conn.get_securities_count()
             return True
         except:
             return False
 
-    def _format_date_condition(self, field: str, start_date: Optional[str] = None,
-                               end_date: Optional[str] = None) -> str:
-        """格式化日期条件（RiceQuant用Python参数处理，此处仅做格式校验）"""
-        # RiceQuant的日期格式为 'YYYY-MM-DD'，需转换输入的yyyymmdd格式
-        def convert_date(date_str):
-            if not date_str:
-                return None
-            if len(date_str) == 8:
-                return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-            return date_str
+    def _convert_wind_code_to_rq(self, windcode: str) -> str:
+        """将Wind格式代码转换为RiceQuant格式"""
+        if not isinstance(windcode, str):
+            return windcode
+        for suffix, rq_suffix in self.MARKET_SUFFIX_MAP.items():
+            if windcode.endswith(suffix):
+                return windcode[:-len(suffix)] + rq_suffix
+        return windcode
 
-        self.start_date_conv = convert_date(start_date)
-        self.end_date_conv = convert_date(end_date)
-        return ""  # RiceQuant无需拼接SQL条件，返回空字符串
+    def _convert_rq_code_to_wind(self, rq_code: str) -> str:
+        """将RiceQuant格式代码转换回Wind格式"""
+        if not isinstance(rq_code, str):
+            return rq_code
+        for rq_suffix, wind_suffix in self.REVERSE_MARKET_SUFFIX_MAP.items():
+            if rq_code.endswith(rq_suffix):
+                return rq_code[:-len(rq_suffix)] + wind_suffix
+        return rq_code
 
-    def _format_in_condition(self, field: str, values: List[str]) -> str:
-        """格式化IN条件（RiceQuant用Python列表处理）"""
-        # 转换Wind格式代码到RiceQuant格式（600000.SH → 600000.XSHG）
-        self.instrument_list = [
-            ins.replace(".SH", ".XSHG").replace(".SZ", ".XSHE") 
-            for ins in values
-        ]
-        return ""  # RiceQuant无需拼接SQL条件，返回空字符串
+    def _convert_instruments(self, instruments: List[str]) -> List[str]:
+        """转换标的列表（Wind格式 -> RiceQuant格式）"""
+        return [self._convert_wind_code_to_rq(instr) for instr in instruments]
+
+    def _convert_instruments_to_wind(self, instruments: List[str]) -> List[str]:
+        """转换标的列表（RiceQuant格式 -> Wind格式）"""
+        return [self._convert_rq_code_to_wind(instr) for instr in instruments]
+
+    def _convert_date(self, date_str: Optional[str]) -> Optional[str]:
+        """转换日期格式 yyyymmdd -> YYYY-MM-DD"""
+        if not date_str:
+            return None
+        if len(date_str) == 8:
+            return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        return date_str
+
+    def _get_fields_mapping(self, table_name: str, fields: List[str]) -> Dict[str, str]:
+        """获取字段映射：业务字段 -> 数据库字段"""
+        table_map = self.field_mappings.get(table_name, {})
+        return {field: table_map.get(field, field) for field in fields}
+
+    def _map_result_fields(self, df: pd.DataFrame, table_name: str, fields: List[str]) -> pd.DataFrame:
+        """将RiceQuant返回的字段映射为业务字段名"""
+        if df.empty:
+            return pd.DataFrame(columns=fields)
+
+        table_map = self.field_mappings.get(table_name, {})
+        # 构建反向映射：RiceQuant字段 -> 业务字段
+        reverse_map = {v: k for k, v in table_map.items() if v in df.columns}
+        df.rename(columns=reverse_map, inplace=True)
+
+        # 分钟线特殊处理：将 time 列重命名为 trade_date（如果需要）
+        if table_name == "MinuteLine" and "time" in df.columns and "trade_date" not in df.columns:
+            df.rename(columns={"time": "trade_date"}, inplace=True)
+
+        # 将 windcode/order_book_id 从 RiceQuant 格式转换回 Wind 格式
+        code_column = None
+        if "windcode" in df.columns:
+            code_column = "windcode"
+        elif "order_book_id" in df.columns:
+            code_column = "order_book_id"
+
+        if code_column:
+            df[code_column] = df[code_column].apply(self._convert_rq_code_to_wind)
+            # 如果是 order_book_id，同时重命名为 windcode
+            if code_column == "order_book_id":
+                df.rename(columns={"order_book_id": "windcode"}, inplace=True)
+
+        # 只保留需要的字段
+        valid_fields = [f for f in fields if f in df.columns]
+        return df[valid_fields]
+
+    def _get_price_data(self, table_name: str, instruments: List[str],
+                        start_date: Optional[str], end_date: Optional[str],
+                        fields: List[str], **kwargs) -> pd.DataFrame:
+        """通用 get_price 调用"""
+        rq_conn = self._get_connection()
+
+        # 转换标的代码
+        rq_instruments = self._convert_instruments(instruments) if instruments else None
+
+        # 转换日期
+        start = self._convert_date(start_date)
+        end = self._convert_date(end_date)
+
+        # 频率
+        frequency = kwargs.get("frequency", self.TABLE_FREQ.get(table_name, "1d"))
+
+        # 获取字段映射
+        field_map = self._get_fields_mapping(table_name, fields)
+
+        # 构建 RiceQuant 字段列表，排除索引字段
+        excluded_fields = {'order_book_id', 'date', 'time', 'datetime'}
+        rq_fields = []
+        for biz_field, db_field in field_map.items():
+            if db_field not in excluded_fields:
+                rq_fields.append(db_field)
+        rq_fields = list(set(rq_fields))
+
+        # 其他参数
+        adjust_type = kwargs.get("adjust_type", "none")
+
+        # 调用 get_price
+        df = rq_conn.get_price(
+            order_book_ids=rq_instruments,
+            start_date=start,
+            end_date=end,
+            frequency=frequency,
+            fields=rq_fields if rq_fields else None,
+            adjust_type=adjust_type,
+        )
+
+        # 重置索引，将 order_book_id 和 date/time 变为列
+        if df is not None and not df.empty:
+            df = df.reset_index()
+
+        # 字段映射
+        if df is not None and not df.empty:
+            df = self._map_result_fields(df, table_name, fields)
+
+        return df if df is not None else pd.DataFrame(columns=fields)
+
+    def _get_trading_dates(self, start_date: Optional[str], end_date: Optional[str],
+                           fields: List[str]) -> pd.DataFrame:
+        """获取交易日历"""
+        rq_conn = self._get_connection()
+        start = self._convert_date(start_date)
+        end = self._convert_date(end_date)
+
+        dates = rq_conn.get_trading_dates(start_date=start, end_date=end)
+        df = pd.DataFrame(dates, columns=["trade_date"])
+        return df[fields] if fields else df
+
+    def _get_instruments_info(self, instruments: List[str], fields: List[str]) -> pd.DataFrame:
+        """获取合约详细信息"""
+        rq_conn = self._get_connection()
+        rq_instruments = self._convert_instruments(instruments)
+
+        results = []
+        for code in rq_instruments:
+            instr = rq_conn.instruments(code)
+            if instr:
+                data = {
+                    "windcode": code,
+                    "symbol": getattr(instr, "symbol", ""),
+                    "abbrev_symbol": getattr(instr, "abbrev_symbol", ""),
+                    "listed_date": getattr(instr, "listed_date", None),
+                    "de_listed_date": getattr(instr, "de_listed_date", None),
+                    "exchange": getattr(instr, "exchange", ""),
+                    "type": getattr(instr, "type", ""),
+                    "round_lot": getattr(instr, "round_lot", 1),
+                    "sector_code": getattr(instr, "sector_code", ""),
+                    "industry_code": getattr(instr, "industry_code", ""),
+                }
+                results.append(data)
+
+        df = pd.DataFrame(results)
+        return self._map_result_fields(df, "instruments", fields) if not df.empty else pd.DataFrame(columns=fields)
+
+    def _get_option_contracts(self, underlying: str, start_date: Optional[str],
+                              fields: List[str]) -> pd.DataFrame:
+        """获取期权合约"""
+        rq_conn = self._get_connection()
+        rq_underlying = self._convert_wind_code_to_rq(underlying)
+
+        contracts = rq_conn.options.get_contracts(
+            underlying=rq_underlying,
+            trading_date=self._convert_date(start_date),
+            option_type=self._extra_params.get("option_type"),
+            maturity=self._extra_params.get("maturity"),
+            strike=self._extra_params.get("strike_price"),
+        )
+
+        df = pd.DataFrame(contracts, columns=["order_book_id"])
+        df["windcode"] = df["order_book_id"]
+        return self._map_result_fields(df, "OptionContracts", fields) if not df.empty else pd.DataFrame(columns=fields)
+
+    def _get_option_greeks(self, instruments: List[str], start_date: Optional[str],
+                           end_date: Optional[str], fields: List[str]) -> pd.DataFrame:
+        """获取期权希腊字母"""
+        rq_conn = self._get_connection()
+        rq_instruments = self._convert_instruments(instruments)
+        start = self._convert_date(start_date)
+        end = self._convert_date(end_date)
+
+        df = rq_conn.options.get_greeks(
+            order_book_ids=rq_instruments,
+            start_date=start,
+            end_date=end,
+            model=self._extra_params.get("model", "implied_forward"),
+            price_type=self._extra_params.get("price_type", "close"),
+        )
+
+        if df is not None and not df.empty:
+            df = df.reset_index()
+            df = self._map_result_fields(df, "OptionGreeks", fields)
+
+        return df if df is not None else pd.DataFrame(columns=fields)
 
     def _execute_query(self, sql: str) -> pd.DataFrame:
-        """执行RiceQuant查询（重写实现，适配API调用）"""
-        # RiceQuant不使用SQL，此处sql参数仅用于日志
-        try:
-            # 根据表名路由到不同的RiceQuant API
-            table_name = self._current_table_name
+        """执行查询（重写实现，适配各表路由）"""
+        table_name = self._current_table_name
+        fields = self._query_fields
+        instruments = self._query_instruments
+        start_date = self._query_start_date
+        end_date = self._query_end_date
+        extra = self._extra_params
+
+        # 根据表名路由到不同API
+        if table_name in ["AShareEODPrices", "DayLine", "MinuteLine", "OptionEODPrices", "OptionMinute"]:
+            return self._get_price_data(table_name, instruments, start_date, end_date, fields, **extra)
+
+        elif table_name == "AShareCalendar":
+            return self._get_trading_dates(start_date, end_date, fields)
+
+        elif table_name == "instruments":
+            return self._get_instruments_info(instruments, fields)
+
+        elif table_name == "OptionContracts":
+            underlying = instruments[0] if instruments else None
+            if not underlying:
+                raise QueryError("期权合约查询需要传入 underlying_code")
+            return self._get_option_contracts(underlying, start_date, fields)
+
+        elif table_name == "OptionGreeks":
+            if not instruments:
+                raise QueryError("期权希腊字母查询需要传入合约代码")
+            return self._get_option_greeks(instruments, start_date, end_date, fields)
+
+        elif table_name == "OptionDominantMonth":
             rq_conn = self._get_connection()
+            rq_underlying = self._convert_instruments(instruments)
+            start = self._convert_date(start_date)
+            end = self._convert_date(end_date)
 
-            # 构建查询参数
-            query_kwargs = {
-                "order_book_ids": self.instrument_list if hasattr(self, "instrument_list") else None,
-                "start_date": self.start_date_conv if hasattr(self, "start_date_conv") else None,
-                "end_date": self.end_date_conv if hasattr(self, "end_date_conv") else None,
-            }
+            series = rq_conn.options.get_dominant_month(
+                underlying_symbol=rq_underlying,
+                start_date=start,
+                end_date=end,
+                rule=extra.get("rule", 0),
+                rank=extra.get("rank", 1),
+            )
+            df = series.reset_index(name="dominant")
+            df.rename(columns={"index": "trade_date"}, inplace=True)
+            return self._map_result_fields(df, table_name, fields)
 
-            # 核心：根据表名调用对应的RiceQuant API
-            if table_name == "AShareEODPrices":
-                # A股日行情数据
-                df = rq_conn.get_price(**query_kwargs)
-            # elif table_name == "MinuteLine":
-            #     # 分钟线数据
-            #     df = rq_conn.get_price(frequency="1m", **query_kwargs)
-            elif table_name == "MinuteLine":
-                df = rq_conn.get_price(
-                    order_book_ids=query_kwargs["order_book_ids"],
-                    start_date=query_kwargs["start_date"],
-                    end_date=query_kwargs["end_date"],
-                    frequency="1m",
-                    fields=query_kwargs.get("fields"))
-                if "price" in df.columns:
-                    df.drop(columns="price", inplace=True)
-            # === 新增：期权数据接口支持 ===
-            elif table_name == "OptionContracts":
-                # 获取标的代码：如果传入的是列表，取第一个元素；如果是字符串则直接用
-                raw_underlying = query_kwargs.get("order_book_ids")
-                underlying_str = raw_underlying[0] if isinstance(raw_underlying, list) else raw_underlying
-                
-                # 去除可能存在的后缀（如 CU2303.CFE 变为 CU），因为 underlying 通常指品种
-                # 或者确保你传入的就是品种代码
-                if underlying_str and "." in underlying_str:
-                    underlying_str = underlying_str.split('.')[0]
-                # 如果包含数字（如 CU2303），有些接口需要纯品种代码 'CU'
-                import re
-                underlying_code = re.sub(r'\d+', '', underlying_str)
+        elif table_name == "current_snapshot":
+            rq_conn = self._get_connection()
+            rq_instruments = self._convert_instruments(instruments)
+            result = rq_conn.current_snapshot(rq_instruments)
+            if isinstance(result, list):
+                df = pd.DataFrame([{
+                    "windcode": getattr(x, "order_book_id", ""),
+                    "last": getattr(x, "last", None),
+                    "open": getattr(x, "open", None),
+                    "high": getattr(x, "high", None),
+                    "low": getattr(x, "low", None),
+                    "volume": getattr(x, "volume", None),
+                    "total_turnover": getattr(x, "total_turnover", None),
+                    "prev_close": getattr(x, "prev_close", None),
+                    "limit_up": getattr(x, "limit_up", None),
+                    "limit_down": getattr(x, "limit_down", None),
+                } for x in result])
+                return self._map_result_fields(df, table_name, fields)
+            return pd.DataFrame(columns=fields)
 
-                # 筛选期权合约
-                contracts = rq_conn.options.get_contracts(
-                    underlying=underlying_code,  # 确保这里是字符串 'CU'
-                    option_type=self._extra_params.get("option_type"),
-                    maturity=self._extra_params.get("maturity"),
-                    strike=self._extra_params.get("strike"),
-                    trading_date=query_kwargs.get("start_date")
-                )
-                # 注意：rq 返回的是 list，需要转换成 DataFrame 并映射字段
-                df = pd.DataFrame(contracts, columns=["order_book_id"])
-            elif table_name == "OptionEODPrices":
-                # 期权日行情（使用通用 get_price）
-                df = rq_conn.get_price(
-                    order_book_ids=query_kwargs["order_book_ids"],
-                    start_date=query_kwargs["start_date"],
-                    end_date=query_kwargs["end_date"],
-                    frequency="1d",
-                    fields=query_kwargs.get("fields"))
-            elif table_name == "OptionMinute":
-                # 期权分钟行情
-                df = rq_conn.get_price(
-                    order_book_ids=query_kwargs["order_book_ids"],
-                    start_date=query_kwargs["start_date"],
-                    end_date=query_kwargs["end_date"],
-                    frequency="1m",
-                    fields=query_kwargs.get("fields"))
-            elif table_name == "OptionGreeks":
-                # 期权希腊字母
-                df = rq_conn.options.get_greeks(
-                    order_book_ids=query_kwargs["order_book_ids"],
-                    start_date=query_kwargs["start_date"],
-                    end_date=query_kwargs["end_date"],
-                    fields=query_kwargs.get("fields"),
-                    model=query_kwargs.get("model", "implied_forward"),
-                    price_type=query_kwargs.get("price_type", "close"),
-                    frequency=query_kwargs.get("frequency", "1d"),
-                    market=query_kwargs.get("market", "cn"))
-            elif table_name == "OptionContractProperty":
-                # ETF期权合约属性
-                df = rq_conn.options.get_contract_property(
-                    order_book_ids=query_kwargs["order_book_ids"],
-                    start_date=query_kwargs["start_date"],
-                    end_date=query_kwargs["end_date"],
-                    fields=query_kwargs.get("fields"))
-            elif table_name == "OptionDominantMonth":
-                # 期权主力月份
-                series = rq_conn.options.get_dominant_month(
-                    underlying_symbol=query_kwargs["order_book_ids"],
-                    start_date=query_kwargs["start_date"],
-                    end_date=query_kwargs["end_date"],
-                    rule=query_kwargs.get("rule", 0),
-                    rank=query_kwargs.get("rank", 1),
-                    market=query_kwargs.get("market", "cn"))
-                df = series.reset_index(name="dominant")
-                df.rename(columns={"index": "date"}, inplace=True)
-            elif table_name == "OptionIndicators":
-                # 期权衍生指标
-                df = rq_conn.options.get_indicators(
-                    underlying_symbols=query_kwargs["order_book_ids"],
-                    maturity=query_kwargs["maturity"],
-                    start_date=query_kwargs["start_date"],
-                    end_date=query_kwargs["end_date"],
-                    fields=query_kwargs.get("fields"),
-                    market=query_kwargs.get("market", "cn"))
+        else:
+            raise QueryError(f"RiceQuant不支持查询表：{table_name}")
 
-            elif table_name == "DayLine":
-                # 日线数据（兼容自定义表名）
-                df = rq_conn.get_price(frequency="1d", **query_kwargs)
-            elif table_name == "AShareCalendar":
-                # 交易日历
-                df = rq_conn.get_trading_dates(
-                    start_date=query_kwargs["start_date"],
-                    end_date=query_kwargs["end_date"]
-                )
-                df = pd.DataFrame(df, columns=["trade_date"])
-            else:
-                raise QueryError(f"RiceQuant不支持查询表：{table_name}")
+    # ========== 实现基类抽象方法 ==========
+    def _format_date_condition(self, field: str, start_date: Optional[str] = None,
+                               end_date: Optional[str] = None) -> str:
+        self._query_start_date = start_date
+        self._query_end_date = end_date
+        return ""
 
-            # 字段映射：对齐Wind字段名规范
-            df = self._map_rq_fields_to_wind(df, table_name)
-            
-            # 确保日期字段统一为trade_date
-            if "date" in df.columns:
-                df.rename(columns={"date": "trade_date"}, inplace=True)
-            
-            return df.reset_index(drop=False)
-
-        except Exception as e:
-            error_msg = f"RiceQuant查询失败：{str(e)}，请求表：{self._current_table_name}"
-            raise QueryError(error_msg)
-
-    def _map_rq_fields_to_wind(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
-        """将RiceQuant字段映射为Wind规范字段名"""
-        if df.empty:
-            return df
-        
-        # 获取当前表的字段映射配置
-        table_field_map = self.field_mappings.get(table_name, {})
-        
-        # 反向映射：RQ字段 → Wind业务别名
-        reverse_map = {}
-        for wind_alias, rq_field in self.RQ_FIELD_ALIAS.items():
-            if wind_alias in table_field_map:
-                reverse_map[rq_field] = wind_alias
-
-        # 重命名列
-        df.rename(columns=reverse_map, inplace=True)
-        
-        # 只保留配置中定义的字段
-        valid_fields = [f for f in table_field_map.keys() if f in df.columns]
-        return df[valid_fields]
+    def _format_in_condition(self, field: str, values: List[str]) -> str:
+        self._query_instruments = values
+        return ""
 
     def get_data(
             self,
             table_name: str,
             fields: Optional[List[str]] = None,
             instruments: Optional[List[str]] = None,
-            return_sql: bool = False,
             start_date: Optional[str] = None,
             end_date: Optional[str] = None,
-            custom_conditions: Optional[Dict[str, Union[str, int, float, List]]] = None,
+            return_sql: bool = False,
             ignore_date_field: bool = False,
             **kwargs
     ) -> Union[pd.DataFrame, str]:
-        """重写统一查询接口，适配RiceQuant API"""
         self._current_table_name = table_name
+        self._query_fields = fields or []
+        self._query_start_date = start_date
+        self._query_end_date = end_date
+        self._query_instruments = instruments or []
         self._extra_params = kwargs
-        
-        # 1. 校验表配置
-        if table_name not in self.field_mappings:
-            raise InvalidParameterError(f"RiceQuant未配置表 '{table_name}' 的字段映射")
-        
-        # 2. 处理标的代码
+
+        if not ignore_date_field:
+            self._format_date_condition("trade_date", start_date, end_date)
         if instruments:
             self._format_in_condition("windcode", instruments)
-        
-        # 3. 处理日期条件
-        if not ignore_date_field and (start_date or end_date):
-            self._format_date_condition("trade_date", start_date, end_date)
-        
-        # 4. 构建模拟SQL（用于return_sql=True场景）
-        mock_sql = f"""
-        SELECT {', '.join(fields) if fields else '*'}
-        FROM RiceQuant.{table_name}
-        WHERE instrument IN ({', '.join(self.instrument_list) if hasattr(self, 'instrument_list') else ''})
-        AND trade_date BETWEEN '{self.start_date_conv}' AND '{self.end_date_conv}'
-        """.strip()
+
+        if table_name not in self.field_mappings and table_name not in ["instruments", "current_snapshot"]:
+            raise InvalidParameterError(f"RiceQuant未配置表 '{table_name}' 的字段映射")
+
+        mock_sql = f"RiceQuant.{table_name}("
+        if instruments:
+            mock_sql += f"instruments={instruments}, "
+        if start_date:
+            mock_sql += f"start_date={start_date}, "
+        if end_date:
+            mock_sql += f"end_date={end_date}, "
+        if fields:
+            mock_sql += f"fields={fields}"
+        mock_sql += ")"
 
         if return_sql:
             return mock_sql
-        
-        # 5. 执行查询
+
         return self._execute_query(mock_sql)
 
     def close_connection(self):
-        """关闭RiceQuant连接（实现抽象方法）"""
         if self._conn:
-            try:
-                # RiceQuant没有显式关闭连接的API，重置连接状态即可
-                self._conn = None
-                print("✅ RiceQuant连接已重置")
-            except Exception as e:
-                print(f"⚠️ 关闭RiceQuant连接时发生错误: {e}")
+            self._conn = None
+            print("✅ RiceQuant连接已重置")

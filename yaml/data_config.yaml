@@ -254,6 +254,18 @@ data_sources:
       type: "ricequant"
       user: "license"  # 默认用户名
       password: "E9Zg4OL0V9Vt4ZzrNCBP8yhSqo2ko9PCSelvX3axz4JHidGZqDOO27STRwWm6tWm6MQnmK-a-aKg6yD9mhQCpH4irrNLtav2dvZhTMD7JJzjdizzNqXtR00kxoVqXDE5IVCCZpJ8wNJXAjhfeYga5_8H6d60DOEUOxmFQs-33qg=E0-kx6fdj7QAJbyYknNiek0-POaBow36XzLtdT4KdHxPrE4PEoZU5S_Qj8pxs5rnTy8FoT430ENSGCZdej_0fQkFQorLJzPmS2KHcxX-hC35EPBMLz1s9Hq7qszxt4eJhKLirCyCkudt3ngT99DSAnDk49euIT782CoSz9KaXWU="
+    # 市场代码后缀映射（Wind格式 -> RiceQuant格式）
+    market_suffix_map:
+      ".SH": ".XSHG"    # 上海交易所
+      ".SZ": ".XSHE"    # 深圳交易所
+      ".HK": ".XHKG"    # 香港交易所
+      ".BJ": ".XBJ"     # 北京交易所
+      ".CFE": ".CFE"    # 中金所
+      ".CF": ".CFE"     # 中金所（简写）
+      ".SHF": ".XSGE"   # 上期所
+      ".DCE": ".XDCE"   # 大商所
+      ".CZC": ".XZCE"   # 郑商所
+      ".INE": ".XINE"   # 上期能源
     field_mappings:
       # A股日行情（对齐Wind表名）
       AShareEODPrices:
