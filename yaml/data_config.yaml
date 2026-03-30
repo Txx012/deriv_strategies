@@ -9,6 +9,22 @@ data_sources:
       username: "ysp_reader"
       password: "Re@der_2024"
       dfs_path: "dfs://"
+    # 市场后缀映射（Wind格式 -> DolphinDB内部市场标识）
+    market_suffix_map:
+      ".SH": "SH"           # 上交所
+      ".SZ": "SZ"           # 深交所
+      ".BJ": "BJ"           # 北交所
+      ".CFE": "CFE"         # 中金所
+      ".CSI": "CSI"         # 中证指数
+      ".CF": "CF"           # 中金所（简写）
+      ".CZC": "CZC"         # 郑商所
+      ".DCE": "DCE"         # 大商所
+      ".GF": "GF"           # 广期所
+      ".SHF": "SHF"         # 上期所
+      ".NEEQ": "NEEQ"       # 股转市场
+      ".HK": "HK"           # 港交所
+      ".US": "Nasdaq"       # 美股（纳斯达克/纽交所映射到Nasdaq表，查询时通过标的代码区分）
+      ".GI": "GI"           # 全球指数
     field_mappings:
       # 股票L2表（对齐标的格式：600000.SH → 自动解析）
       StockL2Snap:

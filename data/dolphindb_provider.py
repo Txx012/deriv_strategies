@@ -42,13 +42,13 @@ class DolphinDBDataProvider(BaseDataProvider, ABC):
         # 注册退出时清理连接
         atexit.register(self.close_connection)
 
-        # 市场后缀映射（对齐Wind标的格式）
-        self.MARKET_SUFFIX_MAP = {
+        # 市场后缀映射（从YAML配置读取，对齐Wind标的格式）
+        self.MARKET_SUFFIX_MAP = self.source_config.get("market_suffix_map", {
             ".SH": "SH",
             ".SZ": "SZ",
-            ".CFE": "CFE",  # 期货市场后缀
-            ".CSI":"CSI"
-        }
+            ".CFE": "CFE",
+            ".CSI": "CSI"
+        })
         self.TABLE_PORT_MAP["MinuteLine"] = self.kl_port
         self.TABLE_PORT_MAP["DayLine"] = self.kl_port
         for table in ["StockL2Snap", "FutureL2"]:
@@ -162,13 +162,16 @@ class DolphinDBDataProvider(BaseDataProvider, ABC):
 
     def _get_qualified_table_name(self, table_name: str, market: Optional[str] = None) -> str:
         """获取DFS表完整路径（仅保留有效表）"""
-        if table_name == "StockL2Snap":
+        # 定义支持的市场列表（日线和分钟线表）
+        SUPPORTED_KL_MARKETS = ["SH", "SZ", "BJ", "CSI", "CF", "CZC", "DCE", "GF",
+                                 "SHF", "NEEQ", "HK", "Nasdaq", "Nyse", "GI"]
 
+        if table_name == "StockL2Snap":
             if not market:
                 raise QueryError("股票L2查询必须指定市场（通过instruments后缀自动提取）")
-            if market.upper() == "SZ":
+            if market == "SZ":
                 return f"loadTable('{self.dfs_path}StockL2', 'SZSnap')"
-            elif market.upper() == "SH":
+            elif market == "SH":
                 return f"loadTable('{self.dfs_path}StockL2', 'SHSnap')"
             else:
                 raise QueryError(f"股票L2不支持市场类型：{market}（仅支持SZ/SH）")
@@ -177,17 +180,15 @@ class DolphinDBDataProvider(BaseDataProvider, ABC):
         elif table_name == "DayLine":
             if not market:
                 raise QueryError("DayLine查询必须指定市场（通过instruments后缀自动提取）")
-            my_market = market.upper()
-            if my_market not in ["SH", "SZ", "BJ", "CSI", "CF", "CZC", "DCE", "GF", "SHF", "NEEQ", "HK", "Nasdaq", "Nyse", "GI"]:
-                raise QueryError(f"DayLine不支持市场类型：{my_market}（仅支持SH/SZ/BJ/CSI/CF/CZC/DCE/GF/SHF/NEEQ/HK/Nasdaq/Nyse/GI）")
-            return f"loadTable('dfs://DayLine', '{my_market}DayLine')"
+            if market not in SUPPORTED_KL_MARKETS:
+                raise QueryError(f"DayLine不支持市场类型：{market}（支持：{', '.join(SUPPORTED_KL_MARKETS)}）")
+            return f"loadTable('dfs://DayLine', '{market}DayLine')"
         elif table_name == "MinuteLine":
             if not market:
                 raise QueryError("MinuteLine查询必须指定市场（通过instruments后缀自动提取）")
-            my_market = market.upper()
-            if my_market not in ["SH", "SZ", "BJ", "CSI", "CF", "CZC", "DCE", "GF", "SHF", "NEEQ", "HK", "Nasdaq", "Nyse", "GI"]:
-                raise QueryError(f"MinuteLine不支持市场类型：{my_market}（仅支持SH/SZ/BJ/CSI/CF/CZC/DCE/GF/SHF/NEEQ/HK/Nasdaq/Nyse/GI）")
-            return f"loadTable('{self.dfs_path}MinuteLine', '{my_market}MinuteLine')"
+            if market not in SUPPORTED_KL_MARKETS:
+                raise QueryError(f"MinuteLine不支持市场类型：{market}（支持：{', '.join(SUPPORTED_KL_MARKETS)}）")
+            return f"loadTable('{self.dfs_path}MinuteLine', '{market}MinuteLine')"
         else:
             raise QueryError(f"未配置或不存在的表：{table_name}（支持表：StockL2Snap、FutureL2、DayLine、MinuteLine）")
 
